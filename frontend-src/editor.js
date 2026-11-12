@@ -81,6 +81,36 @@ class LinkWidget extends WidgetType {
   }
 }
 
+/** A picture the note embeds, shown in place of its `![[...]]`. */
+class ImageWidget extends WidgetType {
+  constructor(src, alt, width) {
+    super();
+    this.src = src;
+    this.alt = alt;
+    this.width = width;
+  }
+
+  eq(other) {
+    return other.src === this.src && other.alt === this.alt && other.width === this.width;
+  }
+
+  toDOM() {
+    const img = document.createElement("img");
+    img.className = "cm-np-image";
+    img.src = this.src;
+    img.alt = this.alt;
+    img.loading = "lazy";
+    if (this.width) img.style.width = `${this.width}px`;
+    return img;
+  }
+
+  // The picture is shown, not edited: a click puts the cursor there, revealing the
+  // embed's text.
+  ignoreEvent() {
+    return false;
+  }
+}
+
 class CheckboxWidget extends WidgetType {
   constructor(checked, pos) {
     super();
@@ -276,6 +306,17 @@ const buildDecorations = (view, resolveLink) => {
       }
       const target = match[2].trim();
       const resolved = resolveLink?.(target) || null;
+      if (match[1] && resolved?.image) {
+        // `|300` or `|300x200` after a picture is its size in Obsidian.
+        const size = /^(\d+)(?:x\d+)?$/.exec((match[4] || "").trim());
+        const alt = size || !match[4] ? fileName(target) : match[4];
+        decorations.push(
+          Decoration.replace({
+            widget: new ImageWidget(resolved.image, alt, size ? Number(size[1]) : null),
+          }).range(start, end),
+        );
+        continue;
+      }
       const label = match[4] || resolved?.label || fileName(target);
       decorations.push(
         Decoration.replace({
@@ -500,6 +541,7 @@ const theme = EditorView.theme({
   },
   ".cm-np-link:hover": { textDecoration: "underline" },
   ".cm-np-unresolved": { opacity: "0.7" },
+  ".cm-np-image": { display: "inline-block", verticalAlign: "bottom", maxWidth: "100%", height: "auto", borderRadius: "4px", margin: "4px 0" },
   ".cm-np-wikisource": { color: "var(--primary-color)" },
   ".cm-np-bullet": { color: "var(--secondary-text-color)", padding: "0 4px" },
   ".cm-np-task": { margin: "0 6px 0 0", verticalAlign: "middle", cursor: "pointer" },

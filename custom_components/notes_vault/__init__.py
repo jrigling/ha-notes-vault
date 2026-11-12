@@ -21,6 +21,7 @@ from .const import (
     FRONTEND_URL,
     PANEL_URL,
 )
+from .images import NotesVaultImageView
 from .manager import NotesVault
 from .services import async_setup_services
 from .vault import Vault
@@ -45,6 +46,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_setup_services(hass)
     async_setup_websocket(hass)
     hass.http.register_view(NotesVaultDavView(hass))
+    hass.http.register_view(NotesVaultImageView(hass))
     await hass.http.async_register_static_paths(
         [StaticPathConfig(FRONTEND_URL, str(FRONTEND_DIR), cache_headers=False)]
     )

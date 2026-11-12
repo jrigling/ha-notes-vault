@@ -57,6 +57,7 @@ DEFAULT_OPTIONS: Final = {
 #: remotely-save always syncs into a named folder under the server address.
 DAV_URL: Final = "/api/notes_vault/dav"
 DAV_COLLECTION: Final = "vault"
+IMAGE_URL: Final = "/api/notes_vault/image"
 
 FRONTEND_URL: Final = "/notes_vault_static"
 FRONTEND_SCRIPT: Final = "notes-vault.js"

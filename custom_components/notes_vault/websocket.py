@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
 from .const import CONF_WEBDAV, DAV_COLLECTION, DAV_URL
+from .images import async_image_urls
 from .manager import DocKey, LockedFolderError, NotesVault, loaded_manager
 from .vault import ConflictError, StaleError, VaultError
 
@@ -82,6 +83,16 @@ def _target(manager: NotesVault, msg: dict[str, Any]) -> DocKey:
     )
 
 
+async def _with_images(
+    hass: HomeAssistant, manager: NotesVault, result: dict[str, Any]
+) -> dict[str, Any]:
+    """Add URLs for the pictures the note embeds, for the viewer who asked for it."""
+    images = await manager.async_resolve_images(
+        result.get("note") or "", result.get("path")
+    )
+    return {**result, "images": async_image_urls(hass, manager, images)}
+
+
 @callback
 def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register the commands."""
@@ -128,8 +139,12 @@ async def ws_get(hass, connection, msg, manager: NotesVault) -> dict[str, Any]:
     if "path" in msg:
         if not connection.user.is_admin:
             raise Unauthorized
-        return await manager.async_get_file(msg["path"])
-    return await manager.async_get_note(_target(manager, msg))
+        return await _with_images(
+            hass, manager, await manager.async_get_file(msg["path"])
+        )
+    return await _with_images(
+        hass, manager, await manager.async_get_note(_target(manager, msg))
+    )
 
 
 @websocket_api.websocket_command(
@@ -149,16 +164,18 @@ async def ws_set(hass, connection, msg, manager: NotesVault) -> dict[str, Any]:
     """Replace the note of an entity, device or area, or of any note by path."""
     check = "mtime" in msg
     if "path" in msg:
-        return await manager.async_set_file(
+        result = await manager.async_set_file(
             msg["path"], msg["note"], check_mtime=check, mtime=msg.get("mtime")
         )
-    return await manager.async_set_note(
-        _target(manager, msg),
-        msg["note"],
-        source="ui",
-        check_mtime=check,
-        mtime=msg.get("mtime"),
-    )
+    else:
+        result = await manager.async_set_note(
+            _target(manager, msg),
+            msg["note"],
+            source="ui",
+            check_mtime=check,
+            mtime=msg.get("mtime"),
+        )
+    return await _with_images(hass, manager, result)
 
 
 @websocket_api.websocket_command(

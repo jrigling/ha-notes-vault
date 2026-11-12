@@ -12,11 +12,13 @@ import asyncio
 import hashlib
 import logging
 import re
+import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import unquote
 
 import yaml
 from homeassistant.const import EVENT_STATE_CHANGED
@@ -199,6 +201,31 @@ def _prefill_key(key: DocKey) -> str:
 
 #: The target of a wikilink: `[[target]]`, `[[target|label]]`, `[[target#heading]]`.
 _WIKILINK = re.compile(r"\[\[([^\]|#^]+)")
+
+#: Pictures a note can show, by file extension.
+IMAGE_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".svg"}
+)
+#: An Obsidian embed, `![[photo.jpg]]` or `![[photo.jpg|300]]`.
+_EMBED = re.compile(r"!\[\[([^\]|#^]+)")
+#: A Markdown image, `![alt](Attachments/photo.jpg)` or `![alt](<a photo.jpg>)`.
+_MD_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*(<[^>\n]+>|[^)\s]+)")
+
+
+def _image_targets(text: str) -> set[str]:
+    """Collect the image targets embedded in a note, as written in it."""
+    targets = {m.group(1).strip() for m in _EMBED.finditer(text)}
+    for m in _MD_IMAGE.finditer(text):
+        target = m.group(1)
+        if "://" in target or target.startswith(("data:", "#")):
+            continue  # A picture from the web is the browser's to fetch.
+        targets.add(target)
+    return {
+        t
+        for t in targets
+        if PurePosixPath(t.strip("<>")).suffix.lower() in IMAGE_SUFFIXES
+    }
+
 
 #: Anything shaped like an entity ID, tried at every word boundary so that
 #: `states.sensor.outside.state` still yields `sensor.outside`.
@@ -433,6 +460,9 @@ class NotesVault:
             hass, 1, f"{DOMAIN}.prefill"
         )
         self.lock = asyncio.Lock()
+        #: Keys the picture URLs handed to the frontend, so a picture can only be
+        #: fetched through a note the viewer was allowed to read.
+        self.image_key = secrets.token_bytes(32)
         self._unsubs: list[Callable[[], None]] = []
         self._debouncer: Debouncer | None = None
         self._index_debouncer: Debouncer | None = None
@@ -1502,6 +1532,63 @@ class NotesVault:
                 continue
             links[target] = {"path": path, **(self.ha_target(path) or {})}
         return links
+
+    async def async_resolve_images(
+        self, text: str, note_path: str | None
+    ) -> dict[str, str]:
+        """Map each image a note embeds, as written, to the picture's vault path.
+
+        Targets resolve the way Obsidian resolves them: as a vault path, as a path
+        from the note's folder, or by file name alone, the copy next to the note
+        first and then the one with the shortest path. Missing pictures are left out.
+        """
+        targets = _image_targets(text)
+        if not targets:
+            return {}
+        return await self.hass.async_add_executor_job(
+            self._resolve_images, targets, note_path
+        )
+
+    def _resolve_images(
+        self, targets: set[str], note_path: str | None
+    ) -> dict[str, str]:
+        """Resolve image targets against the vault. Runs in the executor."""
+        folder = PurePosixPath(note_path).parent.as_posix() if note_path else ""
+        folder = "" if folder == "." else folder
+        images = sorted(
+            entry.path
+            for entry in self.vault.walk()
+            if PurePosixPath(entry.path).suffix.lower() in IMAGE_SUFFIXES
+        )
+        by_path = set(images)
+        by_name: dict[str, list[str]] = {}
+        for path in images:
+            by_name.setdefault(PurePosixPath(path).name, []).append(path)
+        found: dict[str, str] = {}
+        for target in targets:
+            raw = unquote(target.strip("<>"))
+            try:
+                candidates = [self.vault.normalize(raw)]
+                if folder:
+                    candidates.insert(0, self.vault.normalize(f"{folder}/{raw}"))
+            except InvalidPathError:
+                continue
+            if path := next((c for c in candidates if c in by_path), None):
+                found[target] = path
+                continue
+            if "/" in raw.strip("/"):
+                continue  # A path that isn't there doesn't fall back to a name.
+            same_name = by_name.get(PurePosixPath(raw).name, [])
+            if same_name:
+                found[target] = min(
+                    same_name,
+                    key=lambda p: (
+                        PurePosixPath(p).parent.as_posix() != (folder or "."),
+                        p.count("/"),
+                        p,
+                    ),
+                )
+        return found
 
     def _backlinks(self, path: str) -> list[dict[str, str]]:
         """Find the notes linking to a path, and how. Runs in the executor.

@@ -12,11 +12,12 @@
 > [!NOTE]
 > **This is a fork** of [FezVrasta/ha-notes-vault](https://github.com/FezVrasta/ha-notes-vault), which Federico Zivolo wrote and maintains. All the credit for Notes Vault is his. Use the original unless you need the fixes below, and report anything not specific to them upstream.
 >
-> What this fork adds on top of upstream v0.9.0, as v0.9.1:
+> What this fork adds on top of upstream v0.9.0:
 >
 > - A sync no longer crashes when an automation or script targets a list that mixes entity IDs with a template.
 > - [#4](https://github.com/FezVrasta/ha-notes-vault/pull/4) by [@thoppa](https://github.com/thoppa): a device registry field that isn't a string no longer crashes the sync.
 > - [#6](https://github.com/FezVrasta/ha-notes-vault/pull/6) by David Bebawy: devices are read the Home Assistant 2026.10 way, without the `config_entries` deprecation warning.
+> - **Pictures in notes.** Images already in the vault show in Home Assistant: on device and area pages, in more-info dialogs, in the Notes panel and in the editor. Both Obsidian embeds (`![[photo.jpg]]`, `![[photo.jpg|300]]`) and Markdown images (`![alt](Attachments/photo.jpg)`) work, resolved the way Obsidian resolves them. Each picture is served through a signed, expiring URL that's only handed out with a note the viewer may read.
 >
 > These are meant to go upstream; once they do, this fork has no reason to exist.
 

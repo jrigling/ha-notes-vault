@@ -96,14 +96,24 @@ const haHref = (ha) => {
  * device or area. In the panel every link opens its note; elsewhere links go to the
  * entity's dialog or the device or area page, and other notes open in the panel.
  */
-const renderWikilinks = (text, links, { inPanel, canBrowse }) =>
+const renderWikilinks = (text, links, { inPanel, canBrowse, images = {} }) =>
   text
+    // A Markdown image of a vault file gets the signed URL the server made for it.
+    .replace(/!\[([^\]\n]*)\]\(\s*(<[^>\n]+>|[^)\s]+)([^)\n]*)\)/g, (m, alt, target) =>
+      images[target] ? `![${alt}](<${images[target]}>)` : m,
+    )
     .replace(/!\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, target, label) => {
       // An Obsidian Base only renders in Obsidian: say what's there instead.
       const base = /^(.*?)\.base(?:#(.+))?$/.exec(target.trim());
       if (base) {
         const name = base[2] || fileName(base[1]);
         return `> *${name}* is an Obsidian view. Open this note in Obsidian to see it.`;
+      }
+      // A picture. `|300` or `|300x200` after it is a size in Obsidian, not a caption.
+      const url = images[target.split(/[#^]/)[0].trim()];
+      if (url) {
+        const alt = label && !/^\d+(x\d+)?$/.test(label.trim()) ? label : fileName(target);
+        return `![${alt.replace(/[[\]]/g, "")}](<${url}>)`;
       }
       return `*${label || fileName(target)}*`;
     })
@@ -469,6 +479,8 @@ class NotesVaultNote extends HTMLElement {
 
   /** Where a wikilink in the editor goes, and the name to show for it. */
   _resolveLink(target) {
+    const image = this._state.images?.[target];
+    if (image) return { image, exists: true };
     const inPanel = this._variant === "panel";
     const known = this._state.links?.[target];
     const path = known?.path || this._notePaths?.get(target);
@@ -786,7 +798,7 @@ class NotesVaultNote extends HTMLElement {
       md.hass = this.hass;
       // The panel shows a note as it is on disk, so an untouched template shows too.
       const text = s.note || (inPanel ? s.template?.body : "") || "";
-      md.content = renderWikilinks(text, s.links, { inPanel, canBrowse: s.canEdit });
+      md.content = renderWikilinks(text, s.links, { inPanel, canBrowse: s.canEdit, images: s.images });
       this._clamp();
     }
 
