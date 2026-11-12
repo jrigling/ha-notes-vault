@@ -173,6 +173,43 @@ async def test_automation_links_entities_read_in_templates(
     assert auto["entities"] == [LAMP]
 
 
+async def test_automation_with_templated_target(
+    hass: HomeAssistant, home: dict, manager: NotesVault, vault_dir: Path
+) -> None:
+    """A template in a list of targets doesn't break the sync.
+
+    Home Assistant skips a target that is a single template, but a template among
+    plain IDs comes back from `entities_in_automation` as a Template object.
+    """
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {
+            "automation": {
+                "id": "lamp_toggle",
+                "alias": "Lamp toggle",
+                "triggers": [{"trigger": "event", "event_type": "toggle"}],
+                "actions": [
+                    {
+                        "action": "light.toggle",
+                        "target": {
+                            "entity_id": [
+                                "light.kitchen_ceiling",
+                                "{{ trigger.event.data.entity_id }}",
+                            ]
+                        },
+                    }
+                ],
+            }
+        },
+    )
+    await hass.async_block_till_done()
+    await manager.async_sync()
+
+    auto = frontmatter(vault_dir, f"{BASE}/Automations/automation.lamp_toggle")
+    assert auto["entities"] == [LAMP]
+
+
 @pytest.mark.parametrize(
     "options",
     [

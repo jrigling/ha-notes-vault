@@ -599,6 +599,12 @@ class NotesVault:
         else:
             details["entities"] = scene.entities_in_scene(self.hass, entity_id)
             component = None
+        # A templated target (`entity_id: "{{ ... }}"`, the same for devices and areas)
+        # comes back from Home Assistant's lists as a Template rather than an ID. Keep
+        # the IDs; the template's source is searched for entities below.
+        for key in ("entities", "devices", "areas"):
+            if key in details:
+                details[key] = [i for i in details[key] if isinstance(i, str)]
         entity = component.get_entity(entity_id) if component else None
         config = getattr(entity, "raw_config", None) or {}
         # Home Assistant's own lists leave out entities only read inside templates.
