@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import aiohttp
 from homeassistant.core import HomeAssistant
 
 from custom_components.notes_vault.manager import NotesVault
@@ -119,3 +120,71 @@ async def test_only_pictures_are_served(
         {"type": "notes_vault/set", "path": "Manuals.md", "note": "![[doc.pdf]]"}
     )
     assert (await ws.receive_json())["result"]["images"] == {}
+
+
+JPEG = b"\xff\xd8\xff\xe0fake jpeg"
+
+
+def _form(data: bytes, filename: str) -> aiohttp.FormData:
+    form = aiohttp.FormData()
+    form.add_field("file", data, filename=filename, content_type="image/jpeg")
+    return form
+
+
+async def test_upload_stores_picture_in_attachments(
+    hass: HomeAssistant,
+    manager: NotesVault,
+    hass_client,
+    hass_client_no_auth,
+    vault_dir: Path,
+) -> None:
+    """An administrator's upload lands in Attachments, named safely and uniquely."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/notes_vault/upload",
+        data=_form(JPEG, "Irrigation 2026-11-11 22-31-05.jpg"),
+    )
+    assert resp.status == 201
+    first = await resp.json()
+    assert first["path"] == "Attachments/Irrigation 2026-11-11 22-31-05.jpg"
+    assert (vault_dir / first["path"]).read_bytes() == JPEG
+
+    # The same name again gets a number, never overwrites.
+    resp = await client.post(
+        "/api/notes_vault/upload",
+        data=_form(JPEG, "Irrigation 2026-11-11 22-31-05.jpg"),
+    )
+    assert (await resp.json())["name"] == "Irrigation 2026-11-11 22-31-05 2.jpg"
+
+    # A name can't climb out of the folder or break an embed; the bytes set the type.
+    resp = await client.post(
+        "/api/notes_vault/upload", data=_form(PNG, "../../[[evil]]|x.jpg")
+    )
+    stored = await resp.json()
+    assert stored["path"].startswith("Attachments/")
+    assert stored["name"].endswith(".png")
+    assert not any(c in stored["name"] for c in "[]|/")
+
+    # The returned URL shows the picture right away.
+    shown = await (await hass_client_no_auth()).get(first["url"])
+    assert shown.status == 200
+
+
+async def test_upload_refuses_what_isnt_a_picture(
+    hass: HomeAssistant,
+    manager: NotesVault,
+    hass_client,
+    hass_read_only_access_token: str,
+    vault_dir: Path,
+) -> None:
+    """Only pictures, and only from administrators."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/notes_vault/upload", data=_form(b"<svg onload=alert(1)>", "x.jpg")
+    )
+    assert resp.status == 415
+
+    user = await hass_client(hass_read_only_access_token)
+    resp = await user.post("/api/notes_vault/upload", data=_form(JPEG, "x.jpg"))
+    assert resp.status == 403
+    assert not (vault_dir / "Attachments").exists()

@@ -645,7 +645,7 @@ const wikilinkCompletion = (listNotes) => async (context) => {
  * `onChange(text)` fires on every edit. `root` is the shadow root the editor lives
  * in, which CodeMirror needs to put its styles where they apply.
  */
-export function createEditor({ parent, root, doc = "", resolveLink, listNotes, onChange, hint }) {
+export function createEditor({ parent, root, doc = "", resolveLink, listNotes, onChange, onFiles, hint }) {
   const view = new EditorView({
     parent,
     root,
@@ -677,6 +677,25 @@ export function createEditor({ parent, root, doc = "", resolveLink, listNotes, o
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChange?.(update.state.doc.toString());
         }),
+        // Pictures pasted or dropped in are uploaded, not inserted as text.
+        EditorView.domEventHandlers({
+          paste(event) {
+            const files = [...(event.clipboardData?.files || [])];
+            if (!onFiles || !files.length) return false;
+            event.preventDefault();
+            onFiles(files);
+            return true;
+          },
+          drop(event, view) {
+            const files = [...(event.dataTransfer?.files || [])];
+            if (!onFiles || !files.length) return false;
+            event.preventDefault();
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos != null) view.dispatch({ selection: { anchor: pos } });
+            onFiles(files);
+            return true;
+          },
+        }),
       ],
     }),
   });
@@ -690,6 +709,19 @@ export function createEditor({ parent, root, doc = "", resolveLink, listNotes, o
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text },
         selection: { anchor: cursor },
+      });
+    },
+    /** Insert text at the cursor, on a line of its own, and put the cursor after it. */
+    insertBlock(text) {
+      const { state } = view;
+      const at = state.selection.main.head;
+      const line = state.doc.lineAt(at);
+      const before = at === line.from ? "" : "\n";
+      const insert = `${before}${text}\n`;
+      view.dispatch({
+        changes: { from: at, insert },
+        selection: { anchor: at + insert.length },
+        scrollIntoView: true,
       });
     },
     /** Re-render links, after their targets resolved differently. */

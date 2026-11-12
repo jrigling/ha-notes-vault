@@ -18,6 +18,7 @@
 > - [#4](https://github.com/FezVrasta/ha-notes-vault/pull/4) by [@thoppa](https://github.com/thoppa): a device registry field that isn't a string no longer crashes the sync.
 > - [#6](https://github.com/FezVrasta/ha-notes-vault/pull/6) by David Bebawy: devices are read the Home Assistant 2026.10 way, without the `config_entries` deprecation warning.
 > - **Pictures in notes.** Images already in the vault show in Home Assistant: on device and area pages, in more-info dialogs, in the Notes panel and in the editor. Both Obsidian embeds (`![[photo.jpg]]`, `![[photo.jpg|300]]`) and Markdown images (`![alt](Attachments/photo.jpg)`) work, resolved the way Obsidian resolves them. Each picture is served through a signed, expiring URL that's only handed out with a note the viewer may read.
+> - **Adding photos.** An *Add photo* button in the editor takes a new photo or picks one from the library on a phone, and pictures can be pasted or dropped in on a computer. Each is shrunk to 2048 px and re-encoded as JPEG in the browser before upload, which also strips the GPS position and other metadata, then saved to `Attachments/` and embedded where the cursor is. Administrators only.
 >
 > These are meant to go upstream; once they do, this fork has no reason to exist.
 

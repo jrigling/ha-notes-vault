@@ -58,6 +58,7 @@ DEFAULT_OPTIONS: Final = {
 DAV_URL: Final = "/api/notes_vault/dav"
 DAV_COLLECTION: Final = "vault"
 IMAGE_URL: Final = "/api/notes_vault/image"
+UPLOAD_URL: Final = "/api/notes_vault/upload"
 
 FRONTEND_URL: Final = "/notes_vault_static"
 FRONTEND_SCRIPT: Final = "notes-vault.js"

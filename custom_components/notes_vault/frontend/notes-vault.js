@@ -64,6 +64,44 @@ const listNotes = (hass) => {
 
 /** How long the panel waits after the last keystroke before saving. */
 const AUTOSAVE_MS = 1000;
+
+const UPLOAD_URL = "/api/notes_vault/upload";
+/** Photos are scaled down to this many pixels on their long side before upload. */
+const MAX_PHOTO_SIDE = 2048;
+
+/**
+ * Redraw a picture as a JPEG at most MAX_PHOTO_SIDE pixels long. A phone photo goes
+ * from several MB to a few hundred KB, and redrawing drops everything but the
+ * pixels: the GPS position of the house, the camera, the time. Safari decodes an
+ * iPhone's HEIC photos here too, so they arrive as JPEG.
+ */
+const shrinkPhoto = async (file) => {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (err) {
+    throw new Error("this browser can't read that picture");
+  }
+  const scale = Math.min(1, MAX_PHOTO_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  // A transparent screenshot would come out black as a JPEG.
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("couldn't encode it"))), "image/jpeg", 0.85),
+  );
+};
+
+/** A local timestamp for a file name, 24-hour: 2026-11-11 22-31-05. */
+const fileStamp = (d = new Date()) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+};
 const CONFLICT =
   "This note changed while you were editing it. Copy anything you want to keep, then load the new version.";
 
@@ -382,6 +420,7 @@ class NotesVaultNote extends HTMLElement {
             resolveLink: (target) => this._resolveLink(target),
             listNotes: () => this._noteOptions(),
             onChange: (text) => this._changed(text),
+            onFiles: (files) => this._uploadFiles(files),
             hint: "Start writing. Type [[ to link a note, an entity, a device or an area.",
           });
           if (this._focusOnMount) this._editor.focus();
@@ -401,6 +440,43 @@ class NotesVaultNote extends HTMLElement {
       this._editor.view.requestMeasure();
       if (hadFocus) this._editor.focus();
     }
+  }
+
+  /** Ask for photos: on a phone this offers the camera and the photo library. */
+  _addPhoto() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.addEventListener("change", () => this._uploadFiles([...input.files]));
+    input.click();
+  }
+
+  /** Shrink each picture, upload it, and embed it where the cursor is. */
+  async _uploadFiles(files) {
+    const pictures = files.filter((f) => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
+    if (!pictures.length || !this._editor) return;
+    const stem = fileName(this._state.path) || "Photo";
+    this._state.uploading = (this._state.uploading || 0) + pictures.length;
+    this._state.error = undefined;
+    this._render();
+    for (const file of pictures) {
+      try {
+        const photo = await shrinkPhoto(file);
+        const form = new FormData();
+        form.append("file", photo, `${stem} ${fileStamp()}.jpg`);
+        const resp = await this.hass.fetchWithAuth(UPLOAD_URL, { method: "POST", body: form });
+        if (!resp.ok) throw new Error((await resp.text()) || resp.statusText);
+        const { name, url } = await resp.json();
+        this._state.images = { ...this._state.images, [name]: url };
+        this._editor?.insertBlock(`![[${name}]]`);
+      } catch (err) {
+        this._state.error = `Couldn't add ${file.name}: ${err.message || err}`;
+      }
+      this._state.uploading -= 1;
+    }
+    this._render();
+    this._editor?.refreshLinks();
   }
 
   _destroyEditor() {
@@ -682,6 +758,13 @@ class NotesVaultNote extends HTMLElement {
     dialog.open = true;
   }
 
+  /** The photo button, while the live-preview editor is up. */
+  _photoButton() {
+    const s = this._state;
+    if (s.plain) return "";
+    return this._button("addPhoto", s.uploading ? "Adding photo…" : "Add photo", { disabled: !!s.uploading });
+  }
+
   _button(action, label, { appearance = "plain", variant, disabled = false } = {}) {
     return `<ha-button size="s" appearance="${appearance}" ${variant ? `variant="${variant}"` : ""} data-action="${action}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</ha-button>`;
   }
@@ -723,6 +806,7 @@ class NotesVaultNote extends HTMLElement {
     if (s.editing && !this._autosaves) {
       actions =
         (menu ? `${menu}<span class="spacer"></span>` : "") +
+        this._photoButton() +
         this._button("cancel", "Cancel", { disabled: s.saving }) +
         this._button("save", s.saving ? "Saving…" : "Save", { appearance: "filled", disabled: s.saving });
     } else if (!s.loading && (!s.error || s.editing) && s.canEdit) {
@@ -743,6 +827,7 @@ class NotesVaultNote extends HTMLElement {
         );
       }
       const hasText = s.note || (inPanel && s.template?.body);
+      if (s.editing) extra.push(this._photoButton());
       if (menu) extra.push(menu);
       // Shown once the note turns out not to fit (see _clamp).
       if (!s.editing && (variant === "card" || variant === "inline")) {
