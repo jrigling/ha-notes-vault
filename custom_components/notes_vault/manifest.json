@@ -18,7 +18,7 @@
   "documentation": "https://github.com/FezVrasta/ha-notes-vault",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/FezVrasta/ha-notes-vault/issues",
+  "issue_tracker": "https://github.com/jrigling/ha-notes-vault/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.9.1"
