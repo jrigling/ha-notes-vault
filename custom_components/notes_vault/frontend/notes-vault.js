@@ -18,7 +18,8 @@
  * Its source and build are in frontend-src/.
  */
 
-const VERSION = "0.1.0";
+/** The release that served this script, from its URL (see _script_url). */
+const VERSION = new URL(import.meta.url).searchParams.get("release") || "unknown";
 const POLL_MS = 700;
 const PANEL_PATH = "/notes-vault";
 

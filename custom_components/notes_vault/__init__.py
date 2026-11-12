@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from homeassistant.components import frontend, panel_custom
@@ -36,9 +37,11 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 
 def _script_url() -> str:
-    # The mtime busts the browser cache whenever an update ships a new script.
-    version = int((FRONTEND_DIR / FRONTEND_SCRIPT).stat().st_mtime)
-    return f"{FRONTEND_URL}/{FRONTEND_SCRIPT}?v={version}"
+    # The mtime busts the browser cache whenever an update ships a new script. The
+    # release goes along so the script can say which one it is.
+    mtime = int((FRONTEND_DIR / FRONTEND_SCRIPT).stat().st_mtime)
+    manifest = json.loads((Path(__file__).parent / "manifest.json").read_text())
+    return f"{FRONTEND_URL}/{FRONTEND_SCRIPT}?v={mtime}&release={manifest['version']}"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
